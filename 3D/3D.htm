@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>3D图像生成</title>
+<meta http-equiv=Content-Type content="text/html;charset=utf-8">
+</head>
+<body>
+<div align="center">
+<canvas id="myCanvas" width="640" height="480" >您的浏览器不支持 HTML5 canvas 标签。</canvas>
+</div>
+</br>
+<div align="center">
+<input type="file" id="myFile" ></input>
+<button id="convertTo3DBtn">生成3D图</button>
+<button id="saveImageBtn">保存图片</button>
+<button id="downloadImageBtn">下载图片</button>
+</div>
+<script>
+/*
+**
+** 3D图像处理部分参考刘红石老师的Turbo C源码 http://www.liuhs.com/
+** 改写成Javascript版本，支持Html5的浏览器打开就可以运行。
+** 在Chrome(版本 48.0.2564.10 64-bit)、Firefox42.0下运行通过，IE9运行有问题。
+** 作者：haidi.zhang@outlook.com
+**
+*/
+var convertButton = document.getElementById("convertTo3DBtn"); 
+bindButtonEvent(convertButton, "click", convertTo3DPic); 
+var saveButton = document.getElementById("saveImageBtn");  
+bindButtonEvent(saveButton, "click", saveImageInfo);  
+var dlButton = document.getElementById("downloadImageBtn");  
+bindButtonEvent(dlButton, "click", saveAsLocalImage);  
+var myCanvas = document.getElementById('myCanvas');
+var myFile = document.getElementById('myFile');
+
+var NO = 999;     /* 一个标志，指示有无对应的点*/
+var W = 64;       /* 重复的图案宽度 */
+var MAXX = 640;   /* 三维画最大宽度 */
+var MAXY = 480;   /* 三维画最大高度 */
+var MAXZ = 7;     /* 三维形象最大层数 */
+var hf =[ //3D图像生成矩阵，数字越大视觉效果越近
+     "11111111111111111111111111111111",
+     "11111111111111111111111111111111",
+     "11111111111111111111111111111111",
+     "11117777777711111177777777711111",
+     "11117777777771111177111111771111",
+     "11111111117771111177111111771111",
+     "11111111117771111177111111771111",
+     "11117777777771111177111111771111",
+     "11111111117771111177111111771111",
+     "11111111117771111177111111771111",
+     "11117777777771111177111111771111",
+     "11117777777711111177777777711111",
+     "11111111111111111111111111111111",
+     "11111111111111111111111111111111",
+     "11112233445566776655443322111111",
+     "11112233445566776655443322111111",
+     "11111111111111111111111111111111",
+     "11111111111111111111111111111111",
+     "11112223344456665443322211111111",
+     "11112223344456665443322211111111",
+     "10101010101010101010101010101010",
+     "01010101010101010101010101010101",
+     "10101010101010101010101010101010",
+     "01010101010101010101010101010101"];
+var hh = "0123456789";//用于图像层次查找、匹配
+
+dot0=new array(MAXX);
+dot1=new array(MAXX);
+dot2=new array(MAXX);
+
+function array(size){
+	this.length=size;
+	for(x=1;x<=size;x++)
+		this[x]=0;
+	return this;
+}
+
+init();//初始化画布，显示提示文字
+
+function init() {
+	var c=document.getElementById("myCanvas");
+	var ctx=c.getContext("2d");
+	// Create gradient
+	var grd=ctx.createLinearGradient(0,0,640,0);
+	grd.addColorStop(0,"blue");
+	grd.addColorStop(1,"green");
+	// Fill with gradient
+	ctx.fillStyle=grd;
+	ctx.fillRect(0,0,640,480);
+	ctx.font="30px Arial";
+	ctx.strokeText("请选择一张分辨率为640*480的图片",90,240);
+}
+myFile.onchange = function(event) {
+    var selectedFile = event.target.files[0];
+	var reader = new FileReader();
+    reader.onload = putImage2Canvas;
+    reader.readAsDataURL(selectedFile);
+}
+function putImage2Canvas(event) {
+    var img = new Image();
+    img.src = event.target.result;
+    img.onload = function(){
+        myCanvas.width = img.width;
+        myCanvas.height = img.height;
+        var context = myCanvas.getContext('2d');
+        context.drawImage(img, 0, 0);
+	}
+}
+
+function getimage(x1, y1, x2, y2, data, part) {
+	var i,j,k;
+	k = 0;
+	for(j=y1;j<=y2;j++) {
+		for(i=x1;i<=x2;i++) {
+			pos = (j*MAXX+i)*4;
+			part[k] = data[pos];
+			part[k+1] = data[pos+1];
+			part[k+2] = data[pos+2];
+			k = k+3;
+		}
+	}
+}
+
+function putimage(x, y, data, part) {
+	var i,j,k;
+	k = 0;
+	for(j=y;j<=y+19;j++) {
+		for(i=x;i<=x;i++) {
+			pos = (j*MAXX+i)*4;
+			data[pos] = part[k];
+			data[pos+1] = part[k+1];
+			data[pos+2] = part[k+2];
+			k = k+3;
+		}
+	}
+}
+
+function convertTo3DPic() {
+	var context = myCanvas.getContext('2d');
+	var imgdata = context.getImageData(0, 0, 640, 480);	
+	//处理imgdata
+	var p=new array(20*3);  //分配内存，准备存放图块数据
+	for(y=0; y< MAXY;y+=20){               //从0到MAXY一行一行进行
+		for(x=0; x<MAXX; x++){               //生成平面数据
+		  dot1[x]=NO;
+		  dot2[x]=NO;
+		  if (x+W <= MAXX) dot1[x]= x + W;
+		  if (x-W >= 0)    dot2[x]= x - W;
+		}
+		for(h=1; h<=MAXZ; h++){                 //从1层到MAXZ层，逐层处理
+			for(x=0; x<=MAXX; x++){
+				lx = x - W /2 + h;                //越靠前的图层，两点的距离越近
+				rx = x + W / 2 - h;
+				if ((hf[Math.floor(y/20)].substring(Math.floor(x/20),Math.floor(x/20)+1)== hh.substring(h,h+1)) && (lx >= 0) && (rx < MAXX)){
+					if (dot1[lx] !=NO) dot2[dot1[lx]]= NO;
+					dot1[lx] = rx;
+					if(dot2[rx] != NO) dot1[dot2[rx]] = NO;
+					dot2[rx] = lx;
+				}
+			}
+		}
+		//依据前面计算得到的数据画出一行三维画
+		for(x=0; x<MAXX; x++){
+			if(dot2[x]==NO){
+			  dot0[x] = x;
+			  tx = x;
+			  while(dot1[tx]!=NO){
+				tx = dot1[tx];
+				dot0[tx] = x;
+			  }
+			}
+			if(dot0[x] != x){
+			  getimage(dot0[x], y, dot0[x], y+19, imgdata.data, p);
+			  putimage(x, y, imgdata.data, p);
+			}
+		}
+		context.putImageData(imgdata, 0, 0);
+	}
+}
+
+function bindButtonEvent(element, type, handler) {  
+   if(element.addEventListener) {  
+	  element.addEventListener(type, handler, false);  
+   } else {  
+	  element.attachEvent('on'+type, handler);  
+   }  
+}
+
+function saveImageInfo() {  
+	var mycanvas = document.getElementById("myCanvas");  
+	var image    = mycanvas.toDataURL("image/png");  
+	var w=window.open('about:blank','image from canvas');  
+	w.document.write("<img src='"+image+"' alt='from canvas'/>");  
+}  
+
+function saveAsLocalImage() {  
+	var myCanvas = document.getElementById("myCanvas");  
+	// here is the most important part because if you dont replace you will get a DOM 18 exception.  
+	//var image = myCanvas.toDataURL("image/png").replace("image/png", "image/octet-stream;Content-Disposition: attachment;filename=foobar.png");  
+	var image = myCanvas.toDataURL("image/png").replace("image/png", "image/octet-stream");   
+	window.location.href=image; // it will save locally  
+}  
+</script>
+</body>
+</html>
